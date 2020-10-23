@@ -259,19 +259,30 @@ class LiveQueryClient extends EventEmitter {
     // Bind WebSocket callbacks
     this.socket.onopen = () => {
       this._handleWebSocketOpen();
+      this.isAlive = true;
     };
 
     this.socket.onmessage = (event) => {
       this._handleWebSocketMessage(event);
+      if (event === 0x7) {
+        this.isAlive = true;
+      }
     };
 
     this.socket.onclose = () => {
       this._handleWebSocketClose();
+      clearInterval(interval);
     };
 
     this.socket.onerror = (error) => {
       this._handleWebSocketError(error);
     };
+
+    const interval = setInterval(function ping() {
+      if (this.isAlive === false) return this.close()
+      this.isAlive = false;
+      this.socket.send(0x9)
+    }, 1000 * 10);
   }
 
   resubscribe() {
@@ -354,79 +365,79 @@ class LiveQueryClient extends EventEmitter {
     let subscription = null;
     if (data.requestId) {
       subscription =
-       this.subscriptions.get(data.requestId);
+        this.subscriptions.get(data.requestId);
     }
     const response = {
       clientId: data.clientId,
       installationId: data.installationId,
     };
-    switch(data.op) {
-    case OP_EVENTS.CONNECTED:
-      if (this.state === CLIENT_STATE.RECONNECTING) {
-        this.resubscribe();
-      }
-      this.emit(CLIENT_EMMITER_TYPES.OPEN);
-      this.id = data.clientId;
-      this.connectPromise.resolve();
-      this.state = CLIENT_STATE.CONNECTED;
-      break;
-    case OP_EVENTS.SUBSCRIBED:
-      if (subscription) {
-        subscription.subscribed = true;
-        subscription.subscribePromise.resolve();
-        setTimeout(() => subscription.emit(SUBSCRIPTION_EMMITER_TYPES.OPEN, response), 200);
-      }
-      break;
-    case OP_EVENTS.ERROR:
-      if (data.requestId) {
-        if (subscription) {
-          subscription.subscribePromise.resolve();
-          setTimeout(() => subscription.emit(SUBSCRIPTION_EMMITER_TYPES.ERROR, data.error), 200);
+    switch (data.op) {
+      case OP_EVENTS.CONNECTED:
+        if (this.state === CLIENT_STATE.RECONNECTING) {
+          this.resubscribe();
         }
-      } else {
-        this.emit(CLIENT_EMMITER_TYPES.ERROR, data.error);
-      }
-      if (data.error === 'Additional properties not allowed') {
-        this.additionalProperties = false;
-      }
-      if (data.reconnect) {
-        this._handleReconnect();
-      }
-      break;
-    case OP_EVENTS.UNSUBSCRIBED:
-      // We have already deleted subscription in unsubscribe(), do nothing here
-      break;
-    default: {
-      // create, update, enter, leave, delete cases
-      if (!subscription) {
+        this.emit(CLIENT_EMMITER_TYPES.OPEN);
+        this.id = data.clientId;
+        this.connectPromise.resolve();
+        this.state = CLIENT_STATE.CONNECTED;
         break;
-      }
-      let override = false;
-      if (data.original) {
-        override = true;
-        delete data.original.__type;
-        // Check for removed fields
-        for (const field in data.original) {
-          if (!(field in data.object)) {
-            data.object[field] = undefined;
-          }
+      case OP_EVENTS.SUBSCRIBED:
+        if (subscription) {
+          subscription.subscribed = true;
+          subscription.subscribePromise.resolve();
+          setTimeout(() => subscription.emit(SUBSCRIPTION_EMMITER_TYPES.OPEN, response), 200);
         }
-        data.original = ParseObject.fromJSON(data.original, false);
-      }
-      delete data.object.__type;
-      const parseObject = ParseObject.fromJSON(data.object, override);
+        break;
+      case OP_EVENTS.ERROR:
+        if (data.requestId) {
+          if (subscription) {
+            subscription.subscribePromise.resolve();
+            setTimeout(() => subscription.emit(SUBSCRIPTION_EMMITER_TYPES.ERROR, data.error), 200);
+          }
+        } else {
+          this.emit(CLIENT_EMMITER_TYPES.ERROR, data.error);
+        }
+        if (data.error === 'Additional properties not allowed') {
+          this.additionalProperties = false;
+        }
+        if (data.reconnect) {
+          this._handleReconnect();
+        }
+        break;
+      case OP_EVENTS.UNSUBSCRIBED:
+        // We have already deleted subscription in unsubscribe(), do nothing here
+        break;
+      default: {
+        // create, update, enter, leave, delete cases
+        if (!subscription) {
+          break;
+        }
+        let override = false;
+        if (data.original) {
+          override = true;
+          delete data.original.__type;
+          // Check for removed fields
+          for (const field in data.original) {
+            if (!(field in data.object)) {
+              data.object[field] = undefined;
+            }
+          }
+          data.original = ParseObject.fromJSON(data.original, false);
+        }
+        delete data.object.__type;
+        const parseObject = ParseObject.fromJSON(data.object, override);
 
-      if (data.original) {
-        subscription.emit(data.op, parseObject, data.original, response);
-      } else {
-        subscription.emit(data.op, parseObject, response);
-      }
+        if (data.original) {
+          subscription.emit(data.op, parseObject, data.original, response);
+        } else {
+          subscription.emit(data.op, parseObject, response);
+        }
 
-      const localDatastore = CoreManager.getLocalDatastore();
-      if (override && localDatastore.isEnabled) {
-        localDatastore._updateObjectIfPinned(parseObject).then(() => {});
+        const localDatastore = CoreManager.getLocalDatastore();
+        if (override && localDatastore.isEnabled) {
+          localDatastore._updateObjectIfPinned(parseObject).then(() => { });
+        }
       }
-    }
     }
   }
 
