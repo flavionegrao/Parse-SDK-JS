@@ -283,7 +283,7 @@ class LiveQueryClient extends EventEmitter {
       if (this.isAlive === false) return this.close()
       this.isAlive = false;
       console.log('[LQ] - PING sent')
-      this.socket.send(0x9)
+      this.socket.send({ op: 'ping' })
     }, 1000 * 10);
   }
 
