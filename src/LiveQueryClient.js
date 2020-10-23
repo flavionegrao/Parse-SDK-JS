@@ -279,7 +279,7 @@ class LiveQueryClient extends EventEmitter {
       this._handleWebSocketError(error);
     };
 
-    const interval = setInterval(function ping() {
+    const interval = setInterval(() => {
       if (this.isAlive === false) return this.close()
       this.isAlive = false;
       console.log('[LQ] - PING sent')
