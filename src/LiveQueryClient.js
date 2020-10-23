@@ -43,7 +43,8 @@ const OP_EVENTS = {
   UPDATE: 'update',
   ENTER: 'enter',
   LEAVE: 'leave',
-  DELETE: 'delete'
+  DELETE: 'delete',
+  PONG: 'pong'
 };
 
 // The event the LiveQuery client should emit
@@ -259,36 +260,19 @@ class LiveQueryClient extends EventEmitter {
     // Bind WebSocket callbacks
     this.socket.onopen = () => {
       this._handleWebSocketOpen();
-      this.isAlive = true;
     };
 
     this.socket.onmessage = (event) => {
       this._handleWebSocketMessage(event);
-      console.log('[LQ] - received', event)
-      if (event && event.data) {
-        const message = JSON.parse(event.data)
-        if (message && message.op === 'pong') {
-          console.log('[LQ] - PONG received')
-          this.isAlive = true;
-        }
-      }
     };
 
     this.socket.onclose = () => {
       this._handleWebSocketClose();
-      clearInterval(interval);
     };
 
     this.socket.onerror = (error) => {
       this._handleWebSocketError(error);
     };
-
-    const interval = setInterval(() => {
-      if (this.isAlive === false) return this.close()
-      this.isAlive = false;
-      console.log('[LQ] - PING sent')
-      this.socket.send(JSON.stringify({ op: 'ping' }))
-    }, 1000 * 10);
   }
 
   resubscribe() {
@@ -360,6 +344,18 @@ class LiveQueryClient extends EventEmitter {
     if (this.additionalProperties) {
       connectRequest.installationId = this.installationId;
     }
+
+    this.isAlive = true;
+    this.pingerInterval = setInterval(() => {
+      if (this.isAlive === false) {
+        console.log('[LQ] - timeout on receiving PONG from server')
+        this._handleWebSocketClose()
+      }
+      this.isAlive = false;
+      console.log('[LQ] - PING sent')
+      this.socket.send(JSON.stringify({ op: 'ping' }))
+    }, 1000 * 10);
+
     this.socket.send(JSON.stringify(connectRequest));
   }
 
@@ -378,6 +374,12 @@ class LiveQueryClient extends EventEmitter {
       installationId: data.installationId,
     };
     switch (data.op) {
+      case OP_EVENTS.PONG:
+        if (this.isAlive === false) {
+          this.emit(CLIENT_EMMITER_TYPES.CONNECTED);
+        }
+        this.isAlive = true;
+        break
       case OP_EVENTS.CONNECTED:
         if (this.state === CLIENT_STATE.RECONNECTING) {
           this.resubscribe();
@@ -457,6 +459,7 @@ class LiveQueryClient extends EventEmitter {
     for (const subscription of this.subscriptions.values()) {
       subscription.emit(SUBSCRIPTION_EMMITER_TYPES.CLOSE);
     }
+    clearInterval(this.pingerInterval);
     this._handleReconnect();
   }
 
