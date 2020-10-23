@@ -265,6 +265,7 @@ class LiveQueryClient extends EventEmitter {
     this.socket.onmessage = (event) => {
       this._handleWebSocketMessage(event);
       if (event === 0x7) {
+        console.log('[LQ] - PONG received')
         this.isAlive = true;
       }
     };
@@ -281,6 +282,7 @@ class LiveQueryClient extends EventEmitter {
     const interval = setInterval(function ping() {
       if (this.isAlive === false) return this.close()
       this.isAlive = false;
+      console.log('[LQ] - PING sent')
       this.socket.send(0x9)
     }, 1000 * 10);
   }
