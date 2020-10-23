@@ -264,7 +264,8 @@ class LiveQueryClient extends EventEmitter {
 
     this.socket.onmessage = (event) => {
       this._handleWebSocketMessage(event);
-      if (event === 0x7) {
+      console.log('[LQ] - received', event)
+      if (event && event.op === 'pong') {
         console.log('[LQ] - PONG received')
         this.isAlive = true;
       }
